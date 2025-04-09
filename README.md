@@ -43,12 +43,12 @@ Follow this process to Execute the Project.
 
 ---
 ## **Demo: Application in Action**
-![App_Demo](resources/demo/demo.gif)
+![App_Demo](demo/demo.gif)
 
 ---
 ## Report
 You can view the **detailed report** of this project here:  
-  **[Project Report](https://github.com/farazkhan-cyber/Osdag/blob/main/resources/docs/Report.pdf)**
+  **[Project Report](http://github.com/farazkhan-cyber/Osdag/blob/main/report/report.pdf)**
 
 ---
 ## **Contact**
