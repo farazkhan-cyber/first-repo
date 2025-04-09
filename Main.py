@@ -1,18 +1,92 @@
-import tkinter as tk
-from tkinter import ttk
+import sys, os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.animation import FuncAnimation
 from matplotlib.gridspec import GridSpec
-import matplotlib.patches as patches
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                             QFrame, QGroupBox, QSizePolicy)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QIcon
 
-class BeamAnalysisApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Advanced Beam Analysis System")
-        self.root.geometry("1400x1000")
+# Modern color palette
+COLOR_PALETTE = {
+    "background": "#2D2D2D",
+    "surface": "#404040",
+    "primary": "#5680E9",
+    "secondary": "#84CEEB",
+    "accent": "#8860D0",
+    "text": "#E0E0E0",
+    "success": "#5ABF95",
+    "warning": "#D19A3E",
+    "danger": "#BF5A5A"
+}
+
+# Configure matplotlib style
+plt.style.use('dark_background')
+plt.rcParams.update({
+    'axes.facecolor': COLOR_PALETTE["surface"],
+    'figure.facecolor': COLOR_PALETTE["background"],
+    'axes.edgecolor': COLOR_PALETTE["text"],
+    'axes.labelcolor': COLOR_PALETTE["text"],
+    'text.color': COLOR_PALETTE["text"],
+    'xtick.color': COLOR_PALETTE["text"],
+    'ytick.color': COLOR_PALETTE["text"],
+    'grid.color': '#4A4A4A',
+    'lines.linewidth': 2
+})
+
+class MplCanvas(FigureCanvasQTAgg):
+    def __init__(self, parent=None, width=12, height=10, dpi=100):
+        self.fig = plt.figure(figsize=(width, height), dpi=dpi, facecolor=COLOR_PALETTE["background"])
+        gs = GridSpec(5, 2, figure=self.fig,
+                      height_ratios=[1, 1, 1, 1.5, 1.5],
+                      width_ratios=[3, 1])
         
+        # Create the styled axes
+        self.axs = {
+            'beam': self._styled_axis(gs[0, 0]),
+            'reaction_A': self._styled_axis(gs[1, 0]),
+            'reaction_B': self._styled_axis(gs[2, 0]),
+            'shear': self._styled_axis(gs[3, 0]),
+            'moment': self._styled_axis(gs[4, 0]),
+            'legend': self._styled_axis(gs[0:2, 1], grid=False),
+            'envelope_sf': self._styled_axis(gs[3, 1]),
+            'envelope_bm': self._styled_axis(gs[4, 1])
+        }
+        
+        super().__init__(self.fig)
+        self.setParent(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.updateGeometry()
+        plt.tight_layout()
+
+    def _styled_axis(self, position, grid=True):
+        ax = self.fig.add_subplot(position)
+        ax.set_facecolor(COLOR_PALETTE["surface"])
+        for spine in ax.spines.values():
+            spine.set_color(COLOR_PALETTE["text"])
+        ax.tick_params(colors=COLOR_PALETTE["text"])
+        ax.xaxis.label.set_color(COLOR_PALETTE["text"])
+        ax.yaxis.label.set_color(COLOR_PALETTE["text"])
+        ax.title.set_color(COLOR_PALETTE["primary"])
+        if grid:
+            ax.grid(True, color='#4A4A4A', linestyle='--')
+        return ax
+
+class BeamAnalysisApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Advanced Beam Analysis System")
+        self.setGeometry(100, 100, 1400, 1000)
+        # Load window icon with proper path handling
+
+        path = os.path.dirname(os.path.realpath(__file__))+"/resources/logo.png"
+        if os.path.exists(path):
+            self.setWindowIcon(QIcon(path))
+        else:
+            print(f"Warning: Icon not found") 
         # Animation control
         self.anim = None
         self.is_animating = False
@@ -21,23 +95,27 @@ class BeamAnalysisApp:
             'BM': {'value': 0, 'position': 0}
         }
         
-        # Configure root grid to expand properly
-        self.root.columnconfigure(0, weight=1)  # Input panel
-        self.root.columnconfigure(1, weight=4)  # Plot panel
-        self.root.rowconfigure(0, weight=1)
+        # Create the main central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main layout (horizontal)
+        main_layout = QHBoxLayout(central_widget)
         
         # Create GUI components
-        self.create_input_panel()
-        self.create_plots()
+        self.create_input_panel(main_layout)
+        self.create_plots(main_layout)
         
-    def create_input_panel(self):
-        # Left panel for inputs and results
-        left_frame = ttk.Frame(self.root, padding=20)
-        left_frame.grid(row=0, column=0, sticky='nsew')
+    def create_input_panel(self, main_layout):
+        # Create left panel for inputs and results
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(20, 20, 20, 20)
         
         # Input parameters
-        input_frame = ttk.LabelFrame(left_frame, text="Input Parameters", padding=15)
-        input_frame.pack(fill='x', pady=10)
+        input_group = QGroupBox("Input Parameters")
+        input_layout = QVBoxLayout(input_group)
+        input_layout.setContentsMargins(15, 15, 15, 15)
         
         self.entries = {}
         fields = [
@@ -49,78 +127,93 @@ class BeamAnalysisApp:
         ]
         
         for label, key, default in fields:
-            row = ttk.Frame(input_frame)
-            row.pack(fill='x', pady=4)
-            ttk.Label(row, text=label, width=22).pack(side='left')
-            self.entries[key] = ttk.Entry(row)
-            self.entries[key].pack(side='right', expand=True, fill='x')
-            self.entries[key].insert(0, default)
+            row_layout = QHBoxLayout()
+            label_widget = QLabel(label)
+            label_widget.setFixedWidth(160)
+            row_layout.addWidget(label_widget)
+            
+            self.entries[key] = QLineEdit()
+            self.entries[key].setText(default)
+            row_layout.addWidget(self.entries[key])
+            
+            input_layout.addLayout(row_layout)
+        
+        left_layout.addWidget(input_group)
         
         # Control buttons
-        btn_frame = ttk.Frame(left_frame)
-        btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="Start", command=self.start_animation).pack(side='left', padx=7)
-        ttk.Button(btn_frame, text="Stop", command=self.stop_animation).pack(side='left', padx=7)
-        ttk.Button(btn_frame, text="Reset", command=self.reset_analysis).pack(side='left', padx=7)
+        btn_frame = QFrame()
+        btn_layout = QHBoxLayout(btn_frame)
+        btn_layout.setContentsMargins(0, 15, 0, 15)
+        
+        start_button = QPushButton("Start")
+        start_button.clicked.connect(self.start_animation)
+        btn_layout.addWidget(start_button)
+        
+        stop_button = QPushButton("Stop")
+        stop_button.clicked.connect(self.stop_animation)
+        btn_layout.addWidget(stop_button)
+        
+        reset_button = QPushButton("Reset")
+        reset_button.clicked.connect(self.reset_analysis)
+        btn_layout.addWidget(reset_button)
+        
+        left_layout.addWidget(btn_frame)
         
         # Results display
-        result_frame = ttk.LabelFrame(left_frame, text="Maximum Values", padding=15)
-        result_frame.pack(fill='both', expand=True, pady=10)
+        result_group = QGroupBox("Maximum Values")
+        result_layout = QVBoxLayout(result_group)
+        result_layout.setContentsMargins(15, 15, 15, 15)
+        
         self.result_labels = {
-            'max_SF': ttk.Label(result_frame, text="Max Shear: -"),
-            'max_BM': ttk.Label(result_frame, text="Max Moment: -"),
-            'current_SF': ttk.Label(result_frame, text="Current Shear: -"),
-            'current_BM': ttk.Label(result_frame, text="Current Moment: -"),
-            'current_position': ttk.Label(result_frame, text="Current Position: -")
+            'max_SF': QLabel("Max Shear: -"),
+            'max_BM': QLabel("Max Moment: -"),
+            'current_SF': QLabel("Current Shear: -"),
+            'current_BM': QLabel("Current Moment: -"),
+            'current_position': QLabel("Current Position: -")
         }
+        
         for lbl in self.result_labels.values():
-            lbl.pack(anchor='w', pady=4)
+            result_layout.addWidget(lbl)
             
-        # Information panel - IMPROVED LAYOUT
-        info_frame = ttk.LabelFrame(left_frame, text="Analysis Information", padding=15)
-        info_frame.pack(fill='both', expand=True, pady=10)
+        left_layout.addWidget(result_group)
+        
+        # Information panel
+        info_group = QGroupBox("Analysis Information")
+        info_layout = QVBoxLayout(info_group)
+        info_layout.setContentsMargins(15, 15, 15, 15)
         
         info_content = """This application simulates beam behavior under moving loads.
 
 Color Legend:
-• Red square: First load (W1)
-• Blue square: Second load (W2)
+• Red square: First load (W₁)
+• Blue square: Second load (W₂)
 • Green line: Shear force diagram
 • Purple line: Bending moment diagram
 
 The simulation tracks maximum values and their positions along the beam during the entire load movement cycle."""
         
-        ttk.Label(info_frame, text=info_content, wraplength=300, justify='left').pack(fill='both', expand=True)
+        info_label = QLabel(info_content)
+        info_label.setWordWrap(True)
+        info_layout.addWidget(info_label)
         
-    def create_plots(self):
+        left_layout.addWidget(info_group)
+        
+        # Add left panel to main layout with proper sizing
+        left_panel.setMaximumWidth(340)
+        main_layout.addWidget(left_panel)
+        
+    def create_plots(self, main_layout):
         # Right panel for plots
-        plot_frame = ttk.Frame(self.root)
-        plot_frame.grid(row=0, column=1, sticky='nsew')
-        
-        # Configure figure with enhanced layout - IMPROVED GRIDSPEC LAYOUT
-        self.fig = plt.figure(figsize=(12, 10), dpi=100)
-        gs = GridSpec(5, 2, figure=self.fig, 
-                     height_ratios=[1, 1, 1, 1.5, 1.5],
-                     width_ratios=[3, 1])  # Main plots and side panel
-        
-        # Create subplots with adjusted positioning
-        self.axs = {
-            'beam': self.fig.add_subplot(gs[0, 0]),
-            'reaction_A': self.fig.add_subplot(gs[1, 0]),
-            'reaction_B': self.fig.add_subplot(gs[2, 0]),
-            'shear': self.fig.add_subplot(gs[3, 0]),
-            'moment': self.fig.add_subplot(gs[4, 0]),
-            'legend': self.fig.add_subplot(gs[0:2, 1]),  # EXPANDED LEGEND SPACE
-            'envelope_sf': self.fig.add_subplot(gs[3, 1]),  # ALIGNED WITH SHEAR GRAPH
-            'envelope_bm': self.fig.add_subplot(gs[4, 1])   # ALIGNED WITH MOMENT GRAPH
-        }
-        
-        # Initialize plots
+        self.canvas = MplCanvas(self)
         self.initialize_plots()
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().pack(fill='both', expand=True)
+        
+        # Add the canvas to the main layout
+        main_layout.addWidget(self.canvas, 1)
         
     def initialize_plots(self):
+        # Get the axes objects from the canvas
+        self.axs = self.canvas.axs
+        
         # Beam diagram
         self.axs['beam'].set_title("Moving Loads on Beam", fontsize=11, pad=10)
         self.beam_line, = self.axs['beam'].plot([], [], 'k-', lw=3)
@@ -170,13 +263,15 @@ The simulation tracks maximum values and their positions along the beam during t
         self.shear_line, = self.axs['shear'].plot([], [], 'g-', lw=2)
         self.moment_line, = self.axs['moment'].plot([], [], 'm-', lw=2)
         
-        # Initialize annotations
-        self.shear_max_text = self.axs['shear'].text(0.05, 0.90, '', transform=self.axs['shear'].transAxes,
-                                                    fontsize=9, bbox=dict(facecolor='white', alpha=0.8))
-        self.moment_max_text = self.axs['moment'].text(0.05, 0.90, '', transform=self.axs['moment'].transAxes,
-                                                      fontsize=9, bbox=dict(facecolor='white', alpha=0.8))
+        # Initialize annotations with contrasting text color for visibility
+        self.shear_max_text = self.axs['shear'].text(
+            0.05, 0.90, '', transform=self.axs['shear'].transAxes,
+            fontsize=9, color='black', bbox=dict(facecolor='white', alpha=0.8))
+        self.moment_max_text = self.axs['moment'].text(
+            0.05, 0.90, '', transform=self.axs['moment'].transAxes,
+            fontsize=9, color='black', bbox=dict(facecolor='white', alpha=0.8))
         
-        # Setup envelope diagrams - IMPROVED TITLES
+        # Setup envelope diagrams
         self.axs['envelope_sf'].clear()
         self.axs['envelope_sf'].set_title("SF Envelope", fontsize=10)
         self.axs['envelope_sf'].grid(True, linestyle=':', alpha=0.6)
@@ -191,7 +286,7 @@ The simulation tracks maximum values and their positions along the beam during t
         self.max_bm_envelope, = self.axs['envelope_bm'].plot([], [], 'm-', lw=2, label="Max")
         self.axs['envelope_bm'].legend(loc='upper right', fontsize=8)
         
-        # IMPROVED LEGEND/INFO PANEL with better spacing and organization
+        # Legend/Info panel
         self.axs['legend'].clear()
         self.axs['legend'].set_title("Beam Analysis Guide", fontsize=11)
         self.axs['legend'].axis('off')
@@ -227,16 +322,16 @@ The simulation tracks maximum values and their positions along the beam during t
             'max_bm': []
         }
         
-        plt.tight_layout()
+        self.canvas.fig.tight_layout()
         
     def validate_inputs(self):
         try:
             return {
-                'L': max(2, float(self.entries['L'].get())),
-                'W1': max(1, float(self.entries['W1'].get())),
-                'W2': max(1, float(self.entries['W2'].get())),
-                'x': max(1, float(self.entries['x'].get())),
-                'speed': max(20, int(self.entries['speed'].get()))
+                'L': max(2, float(self.entries['L'].text())),
+                'W1': max(1, float(self.entries['W1'].text())),
+                'W2': max(1, float(self.entries['W2'].text())),
+                'x': max(1, float(self.entries['x'].text())),
+                'speed': max(20, int(self.entries['speed'].text()))
             }
         except ValueError:
             return None
@@ -249,21 +344,24 @@ The simulation tracks maximum values and their positions along the beam during t
         self.canvas.draw()
         
         # Reset result labels
-        for lbl in self.result_labels.values():
-            lbl.config(text=lbl['text'].split(':')[0] + ': -')
+        for key, lbl in self.result_labels.items():
+            label_text = lbl.text().split(':')[0]
+            lbl.setText(f"{label_text}: -")
             
     def start_animation(self):
-        if self.is_animating: return
+        if self.is_animating: 
+            return
         
         params = self.validate_inputs()
-        if not params: return
+        if not params: 
+            return
         
         # Ensure load spacing is valid
         params['x'] = min(params['x'], params['L'] - 1)
         
         # Reset system
         self.max_values = {'SF': {'value': 0, 'position': 0},
-                          'BM': {'value': 0, 'position': 0}}
+                           'BM': {'value': 0, 'position': 0}}
         
         # Reset envelope data
         self.envelope_data = {
@@ -395,7 +493,7 @@ The simulation tracks maximum values and their positions along the beam during t
         
         # Create animation
         self.anim = FuncAnimation(
-            self.fig, update,
+            self.canvas.fig, update,
             frames=np.linspace(0, params['L'] - params['x'], 100),
             interval=params['speed'],
             blit=True,
@@ -407,15 +505,15 @@ The simulation tracks maximum values and their positions along the beam during t
         
     def update_result_labels(self, current_pos, current_sf, current_bm):
         # Update maximum value displays
-        self.result_labels['max_SF'].config(
-            text=f"Max Shear: {self.max_values['SF']['value']:.1f} kN @ {self.max_values['SF']['position']:.1f}m")
-        self.result_labels['max_BM'].config(
-            text=f"Max Moment: {self.max_values['BM']['value']:.1f} kN·m @ {self.max_values['BM']['position']:.1f}m")
+        self.result_labels['max_SF'].setText(
+            f"Max Shear: {self.max_values['SF']['value']:.1f} kN @ {self.max_values['SF']['position']:.1f}m")
+        self.result_labels['max_BM'].setText(
+            f"Max Moment: {self.max_values['BM']['value']:.1f} kN·m @ {self.max_values['BM']['position']:.1f}m")
         
         # Update current value displays
-        self.result_labels['current_SF'].config(text=f"Current Shear: {current_sf:.1f} kN")
-        self.result_labels['current_BM'].config(text=f"Current Moment: {current_bm:.1f} kN·m")
-        self.result_labels['current_position'].config(text=f"Current Position: {current_pos:.1f} m")
+        self.result_labels['current_SF'].setText(f"Current Shear: {current_sf:.1f} kN")
+        self.result_labels['current_BM'].setText(f"Current Moment: {current_bm:.1f} kN·m")
+        self.result_labels['current_position'].setText(f"Current Position: {current_pos:.1f} m")
         
         # Update plot annotations
         self.shear_max_text.set_text(
@@ -496,8 +594,9 @@ The simulation tracks maximum values and their positions along the beam during t
             self.anim.event_source.stop()
         self.is_animating = False
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = BeamAnalysisApp(root)
-    root.mainloop()
 
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = BeamAnalysisApp()
+    window.show()
+    sys.exit(app.exec())
